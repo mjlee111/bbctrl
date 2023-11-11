@@ -32,6 +32,7 @@
 #include "opencv2/highgui/highgui.hpp"
 #include "opencv2/imgcodecs.hpp"
 #include "sensor_msgs/Image.h"
+#include <ros/package.h>
 
 /*****************************************************************************
 ** Namespaces
@@ -52,9 +53,13 @@ public:
   bool init();
   void run();
 
+  std::string package_path = "";
+  std::string hsv_value_path = "";
+
   cv::Mat* raw_img;
   cv::Mat resize_img;
   cv::Mat binary_img;
+  cv::Mat path_img;
 
   int hsv_value[6] = {
     0,
@@ -73,6 +78,7 @@ private:
 
   void imgCallback(const sensor_msgs::ImageConstPtr& img_raw);
   void changeToBinary(cv::Mat& input_img, cv::Mat& output_img, int hsv_value[]);
+  cv::Mat segmentAndOverlay(const cv::Mat& originalImage, const cv::Mat& binaryImage);
 };
 
 }  // namespace bbctrl

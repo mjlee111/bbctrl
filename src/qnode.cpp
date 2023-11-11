@@ -50,6 +50,11 @@ bool QNode::init()
   }
   ros::start();  // explicitly needed since our nodehandle is going out of scope.
   ros::NodeHandle n;
+  package_path = ros::package::getPath("bbctrl");
+  hsv_value_path = package_path + "/image_value_data";
+  ROS_INFO("Current ROS Path is %s", package_path.c_str());
+  ROS_INFO("Loading HSV value from Path %s", hsv_value_path.c_str());
+
   // Add your ros communications here.
   image_transport::ImageTransport it(n);
   img_subscriber = it.subscribe("/usb_cam/image_raw", 1, &QNode::imgCallback, this);
@@ -59,7 +64,7 @@ bool QNode::init()
 
 void QNode::run()
 {
-  ros::Rate loop_rate(33);
+  ros::Rate loop_rate(100);
   while (ros::ok())
   {
     ros::spinOnce();
@@ -75,6 +80,9 @@ void QNode::imgCallback(const sensor_msgs::ImageConstPtr& img_raw)
   resize_img = raw_img->clone();
   cv::resize(resize_img, resize_img, cv::Size(320, 240), 0, 0, CV_INTER_LINEAR);
   changeToBinary(resize_img, binary_img, hsv_value);
+  path_img = resize_img.clone();
+  path_img = segmentAndOverlay(path_img, binary_img);
+  cv::resize(path_img, path_img, cv::Size(640, 480), 0, 0, CV_INTER_LINEAR);
   Q_EMIT imgSignalEmit();
 }
 
@@ -101,37 +109,40 @@ void QNode::changeToBinary(cv::Mat& input_img, cv::Mat& output_img, int hsv_valu
   cv::resize(output_img, output_img, cv::Size(320, 240), 0, 0, cv::INTER_LINEAR);
 }
 
+cv::Mat QNode::segmentAndOverlay(const cv::Mat& originalImage, const cv::Mat& binaryImage)
+{
+  // Find contours in the binary image
+  std::vector<std::vector<cv::Point>> contours;
+  cv::findContours(binaryImage, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+
+  // Find the contour with the largest area
+  double maxArea = 0;
+  int maxAreaIdx = -1;
+  for (int i = 0; i < contours.size(); ++i)
+  {
+    double area = cv::contourArea(contours[i]);
+    if (area > maxArea)
+    {
+      maxArea = area;
+      maxAreaIdx = i;
+    }
+  }
+
+  // Create a mask for the largest contour
+  cv::Mat mask = cv::Mat::zeros(binaryImage.size(), CV_8U);
+  if (maxAreaIdx != -1)
+  {
+    cv::drawContours(mask, contours, maxAreaIdx, cv::Scalar(255), cv::FILLED);
+  }
+
+  // Create an output image with the same size and type as the original image
+  cv::Mat outputImage = originalImage.clone();
+
+  // Draw a semi-transparent red overlay on the original image based on the mask
+  cv::Mat overlay = cv::Mat::zeros(originalImage.size(), originalImage.type());
+  overlay.setTo(cv::Scalar(0, 0, 255), mask);
+  cv::addWeighted(originalImage, 1.0, overlay, 0.5, 0, outputImage);
+  return outputImage;
+}
+
 }  // namespace bbctrl
-
-// if (input_img.empty())
-// {
-//   return;
-// }
-
-// cv::Mat erode_kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3), cv::Point(-1, -1));
-// cv::Mat dilate_kernel = getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3), cv::Point(-1, -1));
-
-// output_img = input_img.clone();
-
-// medianBlur(output_img, output_img, 9);
-// GaussianBlur(output_img, output_img, cv::Size(15, 15), 2.0);
-
-// cvtColor(output_img, output_img, cv::COLOR_BGR2HSV);
-
-// if (hsv_value[0] != 255)
-// {
-//   cv::inRange(output_img, cv::Scalar(hsv_value[3], hsv_value[4], hsv_value[5]),
-//               cv::Scalar(hsv_value[0], hsv_value[1], hsv_value[2]), output_img);
-// }
-// else
-// {
-//   cv::Mat mask1, mask2;
-//   cv::inRange(output_img, cv::Scalar(0, hsv_value[4], hsv_value[5]),
-//               cv::Scalar(hsv_value[2], hsv_value[1], hsv_value[2]), mask1);
-//   cv::inRange(output_img, cv::Scalar(hsv_value[3], hsv_value[4], hsv_value[5]),
-//               cv::Scalar(255, hsv_value[1], hsv_value[2]), mask2);
-//   cv::bitwise_or(mask1, mask2, output_img);
-// }
-
-// cv::erode(output_img, output_img, erode_kernel);
-// cv::dilate(output_img, output_img, dilate_kernel);
